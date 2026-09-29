@@ -1,9 +1,16 @@
 import os
+import sys
+
+# Ensure the project root is in sys.path when running this script directly
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from config import (
+from src.config import (
     DATA_DIR,
     CHROMA_DB_DIR,
     COLLECTION_NAME,

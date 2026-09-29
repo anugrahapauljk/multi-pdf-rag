@@ -4,11 +4,17 @@ import sys
 # Force UTF-8 encoding for standard output on Windows
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
+
+# Ensure the project root is in sys.path when running this script directly
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
-from config import (
+from src.config import (
     CHROMA_DB_DIR,
     COLLECTION_NAME,
     EMBEDDING_MODEL,
@@ -30,12 +36,7 @@ Question:
 Answer:
 """
 
-def generate_answer(query: str):
-    # Ensure the GROQ_API_KEY is available
-    if not os.getenv("GROQ_API_KEY"):
-        print("Error: GROQ_API_KEY environment variable is not set. Please add it to your .env file.")
-        return
-
+def init_pipeline():
     print(f"Initializing embedding model: '{EMBEDDING_MODEL}'...")
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
 
@@ -45,6 +46,23 @@ def generate_answer(query: str):
         persist_directory=CHROMA_DB_DIR,
         embedding_function=embeddings
     )
+    
+    print(f"Initializing Groq LLM: '{LLM_MODEL}'...")
+    llm = ChatGroq(
+        model=LLM_MODEL,
+        temperature=0, # Use 0 for more factual/grounded generation
+    )
+    
+    return embeddings, vectorstore, llm
+
+def generate_answer(query: str, vectorstore=None, llm=None):
+    # Ensure the GROQ_API_KEY is available
+    if not os.getenv("GROQ_API_KEY"):
+        print("Error: GROQ_API_KEY environment variable is not set. Please add it to your .env file.")
+        return None
+
+    if vectorstore is None or llm is None:
+        _, vectorstore, llm = init_pipeline()
 
     print(f"\nRetrieving relevant documents for: '{query}'")
     # Retrieve top 5 most relevant chunks
@@ -69,13 +87,6 @@ def generate_answer(query: str):
     # Combine the retrieved chunks into a single string
     combined_context = "\n\n---\n\n".join(context_chunks)
 
-    # Initialize the Groq LLM
-    print(f"Initializing Groq LLM: '{LLM_MODEL}'...")
-    llm = ChatGroq(
-        model=LLM_MODEL,
-        temperature=0, # Use 0 for more factual/grounded generation
-    )
-
     # Prepare the prompt
     prompt = PromptTemplate(
         template=RAG_PROMPT_TEMPLATE,
@@ -93,16 +104,8 @@ def generate_answer(query: str):
         "context": combined_context,
         "question": query
     })
-
-    # Print the final output
-    print("ANSWER:")
-    print(response.content.strip())
     
-    print("\n" + "="*60)
-    print("SOURCES USED:")
-    for src in sorted(sources):
-        print(f"- {src}")
-    print("="*60)
+    return response.content.strip(), sorted(sources)
 
 if __name__ == "__main__":
     # Accept query from terminal arguments or prompt the user
@@ -112,6 +115,15 @@ if __name__ == "__main__":
         user_query = input("Enter your search query: ")
         
     if user_query.strip():
-        generate_answer(user_query.strip())
+        result = generate_answer(user_query.strip())
+        if result:
+            ans, srcs = result
+            print("ANSWER:")
+            print(ans)
+            print("\n" + "="*60)
+            print("SOURCES USED:")
+            for src in srcs:
+                print(f"- {src}")
+            print("="*60)
     else:
         print("No query provided. Exiting.")
