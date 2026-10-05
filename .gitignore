@@ -2,5 +2,5 @@
 db/
 venv/
 __pycache__/
-*.pyc
+*.py
 data/PDFs/

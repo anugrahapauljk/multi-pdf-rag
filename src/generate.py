@@ -10,16 +10,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
-from src.config import (
-    CHROMA_DB_DIR,
-    COLLECTION_NAME,
-    EMBEDDING_MODEL,
-    LLM_MODEL,
-)
+from src.retrieve import init_pipeline, retrieve
 
 # Define the prompt template for grounded generation
 RAG_PROMPT_TEMPLATE = """
@@ -36,25 +28,6 @@ Question:
 Answer:
 """
 
-def init_pipeline():
-    print(f"Initializing embedding model: '{EMBEDDING_MODEL}'...")
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-
-    print(f"Loading ChromaDB from '{CHROMA_DB_DIR}'...")
-    vectorstore = Chroma(
-        collection_name=COLLECTION_NAME,
-        persist_directory=CHROMA_DB_DIR,
-        embedding_function=embeddings
-    )
-    
-    print(f"Initializing Groq LLM: '{LLM_MODEL}'...")
-    llm = ChatGroq(
-        model=LLM_MODEL,
-        temperature=0, # Use 0 for more factual/grounded generation
-    )
-    
-    return embeddings, vectorstore, llm
-
 def generate_answer(query: str, vectorstore=None, llm=None):
     # Ensure the GROQ_API_KEY is available
     if not os.getenv("GROQ_API_KEY"):
@@ -64,23 +37,24 @@ def generate_answer(query: str, vectorstore=None, llm=None):
     if vectorstore is None or llm is None:
         _, vectorstore, llm = init_pipeline()
 
-    print(f"\nRetrieving relevant documents for: '{query}'")
-    # Retrieve top 5 most relevant chunks
-    results = vectorstore.similarity_search(query, k=5)
+    # Call the new threshold-based retrieve function
+    results = retrieve(query, vectorstore)
 
     if not results:
-        print("No relevant documents found. Cannot generate an answer.")
-        return
+        msg = "I couldn't find this information in the provided documents."
+        print(msg)
+        return msg, []
 
     # Extract the text content and track the unique sources
     context_chunks = []
     sources = set()
 
-    for doc in results:
+    # Note: results are now tuples of (doc, score)
+    for doc, score in results:
         context_chunks.append(doc.page_content.strip())
         
-        # Track the source metadata
-        source = doc.metadata.get("source", "Unknown Source")
+        # Track the source metadata (using filename if source isn't explicitly there)
+        source = doc.metadata.get("filename", doc.metadata.get("source", "Unknown Source"))
         page = doc.metadata.get("page", "Unknown Page")
         sources.add(f"{source} (Page: {page})")
 
@@ -120,10 +94,11 @@ if __name__ == "__main__":
             ans, srcs = result
             print("ANSWER:")
             print(ans)
-            print("\n" + "="*60)
-            print("SOURCES USED:")
-            for src in srcs:
-                print(f"- {src}")
-            print("="*60)
+            if srcs:
+                print("\n" + "="*60)
+                print("SOURCES USED:")
+                for src in srcs:
+                    print(f"- {src}")
+                print("="*60)
     else:
         print("No query provided. Exiting.")

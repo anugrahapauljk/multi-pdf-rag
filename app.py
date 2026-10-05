@@ -13,19 +13,13 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # ---------------------------------------------------------
 # CACHED RESOURCES
 # ---------------------------------------------------------
-@st.cache_resource
+@st.cache_resource(show_spinner="Initializing AI Models (this may take a few seconds)...")
 def get_rag_pipeline():
     """
     Load embeddings, vectorstore, and llm only once to avoid 
     slow reloads on every Streamlit interaction.
     """
     return init_pipeline()
-
-try:
-    embeddings, vectorstore, llm = get_rag_pipeline()
-except Exception as e:
-    st.error(f"Failed to initialize RAG pipeline: {e}")
-    st.stop()
 
 # ---------------------------------------------------------
 # SESSION STATE
@@ -106,6 +100,9 @@ if prompt := st.chat_input("Ask a question about your documents..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
+                # Initialize models right before needed so UI isn't blocked
+                embeddings, vectorstore, llm = get_rag_pipeline()
+                
                 # Call existing generate_answer logic, passing the cached objects
                 result = generate_answer(prompt, vectorstore=vectorstore, llm=llm)
                 
